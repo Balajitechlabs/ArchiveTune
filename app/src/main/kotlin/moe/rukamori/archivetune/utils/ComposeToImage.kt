@@ -30,7 +30,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.graphics.withClip
 import androidx.core.graphics.withTranslation
 import androidx.core.view.drawToBitmap
-import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.toBitmap
@@ -224,7 +224,7 @@ object ComposeToImage {
             var coverArtBitmap: Bitmap? = null
             if (coverArtUrl != null) {
                 try {
-                    val imageLoader = ImageLoader(context)
+                    val imageLoader = SingletonImageLoader.get(context)
                     val request =
                         ImageRequest
                             .Builder(context)

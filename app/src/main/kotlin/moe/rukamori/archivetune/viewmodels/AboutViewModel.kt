@@ -247,7 +247,24 @@ class AboutViewModel
         private val fetchAboutContributors: FetchAboutContributorsUseCase,
         private val fetchTranslationContributors: FetchAboutTranslationContributorsUseCase,
         private val fetchDependencyLicenses: FetchAboutDependencyLicensesUseCase,
+        val otaUpdater: com.btl.music.updater.BtlOtaUpdater,
     ) : ViewModel() {
+        val otaState = otaUpdater.otaState
+
+        fun checkForUpdates(force: Boolean = true) {
+            viewModelScope.launch {
+                otaUpdater.checkForUpdates(force = force)
+            }
+        }
+
+        fun startOtaDownload(url: String) {
+            otaUpdater.startDownload(url)
+        }
+
+        fun installDownloadedApk(file: java.io.File) {
+            otaUpdater.triggerApkInstall(file)
+        }
+
         private val _state = MutableStateFlow<AboutScreenState>(AboutScreenState.Loading)
         val state: StateFlow<AboutScreenState> = _state.asStateFlow()
 

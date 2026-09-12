@@ -145,6 +145,8 @@ fun InternetSettings(navController: NavController) {
     val (proxyUsername, onProxyUsernameChange) = rememberPreference(key = ProxyUsernameKey, defaultValue = "")
     val (proxyPassword, onProxyPasswordChange) = rememberPreference(key = ProxyPasswordKey, defaultValue = "")
     val (streamBypassProxy, onStreamBypassProxyChange) = rememberPreference(key = StreamBypassProxyKey, defaultValue = false)
+    val (webRemoteEnabled, onWebRemoteEnabledChange) = rememberPreference(key = EnableWebRemoteKey, defaultValue = false)
+    val (webRemoteLanMode, onWebRemoteLanModeChange) = rememberPreference(key = WebRemoteLanModeKey, defaultValue = true)
 
     var testingProxy by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
@@ -358,6 +360,59 @@ fun InternetSettings(navController: NavController) {
                                     }
                                 }
                             },
+                        )
+                    }
+                }
+            }
+
+            PreferenceGroup(
+                title = "LAN Web Remote & Hi-Fi Streamer",
+            ) {
+                item {
+                    SwitchPreference(
+                        title = { Text("Web Remote & Hi-Fi Streamer") },
+                        description = "Lossless audio streaming and remote playback control over your local Wi-Fi network",
+                        icon = { Icon(painterResource(R.drawable.radio), null) },
+                        checked = webRemoteEnabled,
+                        onCheckedChange = onWebRemoteEnabledChange,
+                    )
+                }
+
+                if (webRemoteEnabled) {
+                    item {
+                        SwitchPreference(
+                            title = { Text("Local Wi-Fi Network Access") },
+                            description = if (webRemoteLanMode) "Listening on all network interfaces (LAN mode)" else "Restricted to localhost (127.0.0.1)",
+                            icon = { Icon(painterResource(R.drawable.wifi_proxy), null) },
+                            checked = webRemoteLanMode,
+                            onCheckedChange = onWebRemoteLanModeChange,
+                        )
+                    }
+
+                    item {
+                        val ip = remember {
+                            try {
+                                val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+                                var foundIp = "127.0.0.1"
+                                for (nIf in interfaces) {
+                                    if (!nIf.isUp || nIf.isLoopback) continue
+                                    for (addr in nIf.inetAddresses) {
+                                        if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                                            foundIp = addr.hostAddress ?: "127.0.0.1"
+                                            break
+                                        }
+                                    }
+                                }
+                                foundIp
+                            } catch (_: Exception) {
+                                "127.0.0.1"
+                            }
+                        }
+                        PreferenceEntry(
+                            title = { Text("Web Interface Address") },
+                            description = "Open http://$ip:8080 in your browser to listen & control",
+                            icon = { Icon(painterResource(R.drawable.check), null) },
+                            onClick = {},
                         )
                     }
                 }

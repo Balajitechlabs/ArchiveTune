@@ -75,20 +75,22 @@ class BtlNativeAudioProcessor : BaseAudioProcessor() {
 
         val outputBuffer = replaceOutputBuffer(remaining)
 
-        if (!isEqEnabled || nativeEngineHandle == 0L || !BtlNativeCore.isLoaded || areAllBandsZero()) {
-            // Passthrough with zero copy overhead
-            outputBuffer.put(inputBuffer)
-            outputBuffer.flip()
-            return
-        }
-
-        // Process 16-bit PCM in native Rust SIMD engine
+        // Read 16-bit PCM samples
         val sampleCount = remaining / 2
         val shortArray = ShortArray(sampleCount)
         inputBuffer.order(ByteOrder.nativeOrder()).asShortBuffer().get(shortArray)
         inputBuffer.position(inputBuffer.limit())
 
-        BtlNativeCore.processAudioI16(nativeEngineHandle, shortArray)
+        // 1. Stream samples to Hub for 60-120 FPS FFT, amplitude, and LAN streamer
+        BtlAudioVisualizerHub.processPcm(shortArray, channelCount = 2)
+
+        // 2. Apply in-place Real-time Karaoke or 3D Spatial Audio
+        BtlAudioVisualizerHub.applyDspInPlace(shortArray, channelCount = 2)
+
+        // 3. Process 16-bit PCM in native Rust SIMD engine if EQ active
+        if (isEqEnabled && nativeEngineHandle != 0L && BtlNativeCore.isLoaded && !areAllBandsZero()) {
+            BtlNativeCore.processAudioI16(nativeEngineHandle, shortArray)
+        }
 
         outputBuffer.order(ByteOrder.nativeOrder()).asShortBuffer().put(shortArray)
         outputBuffer.position(outputBuffer.position() + remaining)

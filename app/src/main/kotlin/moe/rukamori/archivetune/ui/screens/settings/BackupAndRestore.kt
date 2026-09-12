@@ -58,7 +58,9 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -166,6 +168,10 @@ fun BackupAndRestore(
     var progressStatus by remember { mutableStateOf("") }
     var progressPercentage by rememberSaveable { mutableIntStateOf(0) }
     var showBackupOptionsDialog by rememberSaveable { mutableStateOf(false) }
+    var showEncryptedBackupPasswordDialog by rememberSaveable { mutableStateOf(false) }
+    var showDecryptPasswordDialog by rememberSaveable { mutableStateOf(false) }
+    var encryptedBackupPassword by rememberSaveable { mutableStateOf("") }
+    var decryptPassword by rememberSaveable { mutableStateOf("") }
     var showRestoreOptionsDialog by rememberSaveable { mutableStateOf(false) }
     var showRestoreValidationError by rememberSaveable { mutableStateOf(false) }
     var restoreValidationErrorMessage by remember { mutableStateOf("") }
@@ -202,6 +208,13 @@ fun BackupAndRestore(
                 viewModel.backup(context, uri, pendingBackupCategories)
             }
         }
+    val encryptedBackupLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+            if (uri != null && encryptedBackupPassword.isNotEmpty()) {
+                viewModel.backupEncrypted(context, uri, pendingBackupCategories, encryptedBackupPassword.toCharArray())
+                encryptedBackupPassword = ""
+            }
+        }
     val backupDirectoryLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri?.let(viewModel::onScheduledBackupDirectorySelected)
@@ -215,6 +228,9 @@ fun BackupAndRestore(
                         pendingRestoreCategories = result.availableCategories
                         pendingRestoreUri = uri
                         showRestoreOptionsDialog = true
+                    } else if (result.errorMessage == "PASSWORD_REQUIRED") {
+                        pendingRestoreUri = uri
+                        showDecryptPasswordDialog = true
                     } else {
                         restoreValidationErrorMessage = result.errorMessage ?: context.getString(R.string.restore_corrupted)
                         showRestoreValidationError = true
@@ -372,7 +388,16 @@ fun BackupAndRestore(
                         title = { Text(stringResource(R.string.action_restore)) },
                         description = stringResource(R.string.restore_select_backup),
                         icon = { Icon(painterResource(R.drawable.restore), null) },
-                        onClick = { restoreLauncher.launch(arrayOf("application/octet-stream", "application/zip")) },
+                        onClick = { restoreLauncher.launch(arrayOf("application/octet-stream", "application/zip", "*/*")) },
+                    )
+                }
+
+                item {
+                    PreferenceEntry(
+                        title = { Text("Encrypted Backup (.btlbak)") },
+                        description = "Hardware AES-256-GCM password-protected export",
+                        icon = { Icon(painterResource(R.drawable.security), null) },
+                        onClick = { showEncryptedBackupPasswordDialog = true },
                     )
                 }
 
@@ -469,6 +494,115 @@ fun BackupAndRestore(
         )
     }
 
+    if (showEncryptedBackupPasswordDialog) {
+        var pwd by rememberSaveable { mutableStateOf("") }
+        DefaultDialog(
+            onDismiss = { showEncryptedBackupPasswordDialog = false },
+            title = { Text("Encrypted Backup (.btlbak)") },
+            buttons = {
+                TextButton(onClick = { showEncryptedBackupPasswordDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(
+                    enabled = pwd.isNotBlank(),
+                    onClick = {
+                        encryptedBackupPassword = pwd
+                        showEncryptedBackupPasswordDialog = false
+                        showBackupOptionsDialog = true
+                    },
+                ) {
+                    Text("Next")
+                }
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Enter a password to encrypt your backup container with AES-256-GCM. You will need this password to restore your library.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = pwd,
+                    onValueChange = { pwd = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+
+    if (showDecryptPasswordDialog) {
+        var pwd by rememberSaveable { mutableStateOf("") }
+        var isVerifying by remember { mutableStateOf(false) }
+        var hasError by remember { mutableStateOf(false) }
+
+        DefaultDialog(
+            onDismiss = {
+                showDecryptPasswordDialog = false
+                pendingRestoreUri = null
+            },
+            title = { Text("Enter Backup Password") },
+            buttons = {
+                TextButton(onClick = {
+                    showDecryptPasswordDialog = false
+                    pendingRestoreUri = null
+                }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+                TextButton(
+                    enabled = pwd.isNotBlank() && !isVerifying,
+                    onClick = {
+                        val uri = pendingRestoreUri ?: return@TextButton
+                        isVerifying = true
+                        coroutineScope.launch {
+                            val result = viewModel.validateBackup(context, uri, pwd.toCharArray())
+                            isVerifying = false
+                            if (result.isValid) {
+                                decryptPassword = pwd
+                                pendingRestoreCategories = result.availableCategories
+                                showDecryptPasswordDialog = false
+                                showRestoreOptionsDialog = true
+                            } else {
+                                hasError = true
+                            }
+                        }
+                    },
+                ) {
+                    Text("Unlock")
+                }
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "This backup is protected with AES-256-GCM encryption. Enter the password to decrypt and verify.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = pwd,
+                    onValueChange = {
+                        pwd = it
+                        hasError = false
+                    },
+                    label = { Text("Password") },
+                    isError = hasError,
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (hasError) {
+                    Text(
+                        text = "Incorrect password or corrupted backup file",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+
     if (showBackupOptionsDialog) {
         BackupOptionsDialog(
             title = stringResource(R.string.backup_options_title),
@@ -477,11 +611,20 @@ fun BackupAndRestore(
                 pendingBackupCategories = categories
                 showBackupOptionsDialog = false
                 val formatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-                backupLauncher.launch(
-                    "${context.getString(R.string.app_name)}_${LocalDateTime.now().format(formatter)}.backup",
-                )
+                if (encryptedBackupPassword.isNotEmpty()) {
+                    encryptedBackupLauncher.launch(
+                        "${context.getString(R.string.app_name)}_${LocalDateTime.now().format(formatter)}.btlbak",
+                    )
+                } else {
+                    backupLauncher.launch(
+                        "${context.getString(R.string.app_name)}_${LocalDateTime.now().format(formatter)}.backup",
+                    )
+                }
             },
-            onDismiss = { showBackupOptionsDialog = false },
+            onDismiss = {
+                showBackupOptionsDialog = false
+                encryptedBackupPassword = ""
+            },
         )
     }
 
@@ -495,11 +638,14 @@ fun BackupAndRestore(
                     pendingRestoreCategories = categories
                     showRestoreOptionsDialog = false
                     pendingRestoreUri = null
-                    viewModel.restore(context, uri, categories)
+                    val pwd = decryptPassword.takeIf { it.isNotEmpty() }?.toCharArray()
+                    decryptPassword = ""
+                    viewModel.restore(context, uri, categories, pwd)
                 },
                 onDismiss = {
                     showRestoreOptionsDialog = false
                     pendingRestoreUri = null
+                    decryptPassword = ""
                 },
             )
         }

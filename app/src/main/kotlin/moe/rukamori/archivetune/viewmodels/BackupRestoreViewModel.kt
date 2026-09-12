@@ -63,6 +63,7 @@ import moe.rukamori.archivetune.playback.MusicService.Companion.PERSISTENT_QUEUE
 import moe.rukamori.archivetune.playlistexport.ExportPlaylistAsCsvUseCase
 import moe.rukamori.archivetune.playlistexport.ExportablePlaylist
 import moe.rukamori.archivetune.playlistexport.ObserveExportablePlaylistsUseCase
+import moe.rukamori.archivetune.utils.BtlEncryptedBackupUtil
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.reportException
 import org.xmlpull.v1.XmlPullParser
@@ -477,6 +478,48 @@ class BackupRestoreViewModel
                 }
         }
 
+        fun backupEncrypted(
+            context: Context,
+            uri: Uri,
+            categories: Set<BackupCategory>,
+            password: CharArray,
+        ) {
+            if (manualBackupJob?.isActive == true || restoreJob?.isActive == true) return
+            manualBackupJob =
+                viewModelScope.launch(Dispatchers.IO) {
+                    val title = context.getString(R.string.backup_in_progress)
+                    val tempZipFile = java.io.File.createTempFile("btl_backup_plain", ".zip", context.cacheDir)
+                    try {
+                        val tempUri = Uri.fromFile(tempZipFile)
+                        createBackupUseCase(
+                            uri = tempUri,
+                            categories = categories.mapTo(linkedSetOf()) { BackupArchiveCategory.valueOf(it.name) },
+                        ) { progress ->
+                            emitProgress(title, "Packaging archive...", progress.percent / 2, progress.indeterminate)
+                        }
+
+                        emitProgress(title, "Encrypting with AES-256-GCM...", 75, indeterminate = false)
+                        context.contentResolver.openOutputStream(uri)?.use { outStream ->
+                            tempZipFile.inputStream().use { inStream ->
+                                BtlEncryptedBackupUtil.encryptStream(password, inStream, outStream)
+                            }
+                        }
+                        emitProgress(title, "Finalizing...", 100, indeterminate = false)
+                        val msg = context.getString(R.string.backup_create_success)
+                        _backupEvent.tryEmit(msg)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (exception: Exception) {
+                        reportException(exception)
+                        val msg = exception.message ?: context.getString(R.string.backup_create_failed)
+                        _backupEvent.tryEmit(msg)
+                    } finally {
+                        tempZipFile.delete()
+                        _backupRestoreProgress.value = null
+                    }
+                }
+        }
+
         fun onScheduledBackupEnabledChanged(enabled: Boolean) {
             updateScheduledBackup { updateScheduledBackup.setEnabled(enabled) }
         }
@@ -570,10 +613,31 @@ class BackupRestoreViewModel
             context: Context,
             uri: Uri,
             categories: Set<BackupCategory>,
+            password: CharArray? = null,
         ) {
             if (restoreJob?.isActive == true || manualBackupJob?.isActive == true) return
             restoreJob = viewModelScope.launch(Dispatchers.IO) {
                 backupOperationCoordinator.withLock {
+                    val cr = context.applicationContext.contentResolver
+                    val isEncrypted = cr.openInputStream(uri)?.use { stream ->
+                        val buf = java.io.BufferedInputStream(stream)
+                        BtlEncryptedBackupUtil.isEncryptedBackup(buf)
+                    } ?: false
+
+                    var tempDecryptedFile: java.io.File? = null
+                    val actualUri = if (isEncrypted && password != null) {
+                        val temp = java.io.File.createTempFile("btl_restore_dec", ".zip", context.cacheDir)
+                        tempDecryptedFile = temp
+                        cr.openInputStream(uri)?.use { inStream ->
+                            temp.outputStream().use { outStream ->
+                                BtlEncryptedBackupUtil.decryptStream(password, inStream, outStream)
+                            }
+                        }
+                        Uri.fromFile(temp)
+                    } else {
+                        uri
+                    }
+
                     val title = context.getString(R.string.restore_in_progress)
                     try {
                         val includeSettings = BackupCategory.SETTINGS in categories
@@ -590,7 +654,7 @@ class BackupRestoreViewModel
 
                         val entryNames = ArrayList<String>()
                         var hasDb = false
-                        context.applicationContext.contentResolver.openInputStream(uri)?.use { stream ->
+                        cr.openInputStream(actualUri)?.use { stream ->
                             stream.zipInputStream().use { zip ->
                                 var entry = zip.nextEntry
                                 while (entry != null) {
@@ -722,6 +786,7 @@ class BackupRestoreViewModel
                             Toast.makeText(context, e.message ?: context.getString(R.string.restore_failed), Toast.LENGTH_LONG).show()
                         }
                     } finally {
+                        tempDecryptedFile?.delete()
                         _backupRestoreProgress.value = null
                     }
                 }
@@ -975,58 +1040,43 @@ class BackupRestoreViewModel
         suspend fun validateBackup(
             context: Context,
             uri: Uri,
+            password: CharArray? = null,
         ): BackupValidationResult =
             withContext(Dispatchers.IO) {
                 try {
-                    val stream =
-                        context.applicationContext.contentResolver.openInputStream(uri)
-                    if (stream == null) {
-                        return@withContext BackupValidationResult(
-                            isValid = false,
-                            availableCategories = emptySet(),
-                            errorMessage = context.getString(R.string.restore_file_not_found),
-                        )
-                    }
-                    stream.use { inputStream ->
-                        val zipStream = inputStream.zipInputStream()
-                        val entryNames = mutableSetOf<String>()
-                        zipStream.use { zip ->
-                            var entry = zip.nextEntry
-                            while (entry != null) {
-                                entryNames.add(entry.name)
-                                entry = zip.nextEntry
+                    val cr = context.applicationContext.contentResolver
+                    val isEncrypted = cr.openInputStream(uri)?.use { stream ->
+                        val buf = java.io.BufferedInputStream(stream)
+                        BtlEncryptedBackupUtil.isEncryptedBackup(buf)
+                    } ?: false
+
+                    if (isEncrypted) {
+                        if (password == null) {
+                            return@withContext BackupValidationResult(
+                                isValid = false,
+                                availableCategories = emptySet(),
+                                errorMessage = "PASSWORD_REQUIRED",
+                            )
+                        }
+                        val tempZip = java.io.File.createTempFile("btl_decrypted_val", ".zip", context.cacheDir)
+                        try {
+                            cr.openInputStream(uri)?.use { inStream ->
+                                tempZip.outputStream().use { outStream ->
+                                    BtlEncryptedBackupUtil.decryptStream(password, inStream, outStream)
+                                }
                             }
-                        }
-                        if (entryNames.isEmpty()) {
+                            return@withContext parseZipBackup(context, Uri.fromFile(tempZip))
+                        } catch (e: Exception) {
                             return@withContext BackupValidationResult(
                                 isValid = false,
                                 availableCategories = emptySet(),
-                                errorMessage = context.getString(R.string.restore_invalid_file),
+                                errorMessage = "INVALID_PASSWORD",
                             )
+                        } finally {
+                            tempZip.delete()
                         }
-                        val categories = mutableSetOf<BackupCategory>()
-                        val hasSettings = SETTINGS_XML_FILENAME in entryNames || SETTINGS_FILENAME in entryNames
-                        val hasDb = entryNames.any { it.startsWith(InternalDatabase.DB_NAME) }
-                        if (hasSettings) {
-                            categories.add(BackupCategory.SETTINGS)
-                            categories.add(BackupCategory.ACCOUNT)
-                        }
-                        if (hasDb) {
-                            categories.add(BackupCategory.LIBRARY)
-                            categories.add(BackupCategory.DOWNLOADS)
-                        }
-                        if (categories.isEmpty()) {
-                            return@withContext BackupValidationResult(
-                                isValid = false,
-                                availableCategories = emptySet(),
-                                errorMessage = context.getString(R.string.restore_missing_content),
-                            )
-                        }
-                        BackupValidationResult(
-                            isValid = true,
-                            availableCategories = categories,
-                            errorMessage = null,
-                        )
+                    } else {
+                        return@withContext parseZipBackup(context, uri)
                     }
                 } catch (e: Exception) {
                     reportException(e)
@@ -1037,6 +1087,59 @@ class BackupRestoreViewModel
                     )
                 }
             }
+
+        private fun parseZipBackup(
+            context: Context,
+            uri: Uri,
+        ): BackupValidationResult {
+            val stream = context.applicationContext.contentResolver.openInputStream(uri)
+                ?: return BackupValidationResult(
+                    isValid = false,
+                    availableCategories = emptySet(),
+                    errorMessage = context.getString(R.string.restore_file_not_found),
+                )
+            return stream.use { inputStream ->
+                val zipStream = inputStream.zipInputStream()
+                val entryNames = mutableSetOf<String>()
+                zipStream.use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        entryNames.add(entry.name)
+                        entry = zip.nextEntry
+                    }
+                }
+                if (entryNames.isEmpty()) {
+                    return BackupValidationResult(
+                        isValid = false,
+                        availableCategories = emptySet(),
+                        errorMessage = context.getString(R.string.restore_invalid_file),
+                    )
+                }
+                val categories = mutableSetOf<BackupCategory>()
+                val hasSettings = SETTINGS_XML_FILENAME in entryNames || SETTINGS_FILENAME in entryNames
+                val hasDb = entryNames.any { it.startsWith(InternalDatabase.DB_NAME) }
+                if (hasSettings) {
+                    categories.add(BackupCategory.SETTINGS)
+                    categories.add(BackupCategory.ACCOUNT)
+                }
+                if (hasDb) {
+                    categories.add(BackupCategory.LIBRARY)
+                    categories.add(BackupCategory.DOWNLOADS)
+                }
+                if (categories.isEmpty()) {
+                    return BackupValidationResult(
+                        isValid = false,
+                        availableCategories = emptySet(),
+                        errorMessage = context.getString(R.string.restore_missing_content),
+                    )
+                }
+                BackupValidationResult(
+                    isValid = true,
+                    availableCategories = categories,
+                    errorMessage = null,
+                )
+            }
+        }
 
         companion object {
             const val SETTINGS_FILENAME = "settings.preferences_pb"

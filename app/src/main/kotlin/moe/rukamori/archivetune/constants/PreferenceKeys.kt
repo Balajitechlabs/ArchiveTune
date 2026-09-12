@@ -390,6 +390,10 @@ val DiscordLargeImageCustomUrlKey = stringPreferencesKey("discordLargeImageCusto
 val DiscordSmallImageTypeKey = stringPreferencesKey("discordSmallImageType")
 val DiscordSmallImageCustomUrlKey = stringPreferencesKey("discordSmallImageCustomUrl")
 
+// BTL LAN Hi-Fi Web Remote & Streamer Keys
+val EnableWebRemoteKey = booleanPreferencesKey("enableWebRemote")
+val WebRemoteLanModeKey = booleanPreferencesKey("webRemoteLanMode")
+val WebRemotePortKey = intPreferencesKey("webRemotePort")
 
 val TranslatorContextsKey = stringPreferencesKey("translatorContexts")
 val TranslatorTargetLangKey = stringPreferencesKey("translatorTargetLang")

@@ -67,4 +67,61 @@ object BtlEncryptedBackupUtil {
             cis.bufferedReader(Charsets.UTF_8).readText()
         }
     }
+
+    fun encryptStream(password: CharArray, inputStream: InputStream, outputStream: OutputStream) {
+        val random = SecureRandom()
+        val salt = ByteArray(SALT_SIZE).also(random::nextBytes)
+        val iv = ByteArray(IV_SIZE).also(random::nextBytes)
+
+        val factory = SecretKeyFactory.getInstance(KEY_DERIVATION)
+        val spec = PBEKeySpec(password, salt, ITERATIONS, KEY_LENGTH)
+        val secretKey = SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
+
+        val cipher = Cipher.getInstance(ALGORITHM)
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey, GCMParameterSpec(TAG_LENGTH_BITS, iv))
+
+        outputStream.write(MAGIC_HEADER)
+        outputStream.write(salt)
+        outputStream.write(iv)
+
+        CipherOutputStream(outputStream, cipher).use { cos ->
+            inputStream.copyTo(cos)
+            cos.flush()
+        }
+    }
+
+    fun decryptStream(password: CharArray, inputStream: InputStream, outputStream: OutputStream) {
+        val magic = ByteArray(MAGIC_HEADER.size)
+        if (inputStream.read(magic) != MAGIC_HEADER.size || !magic.contentEquals(MAGIC_HEADER)) {
+            error("Invalid encrypted backup file: header mismatch")
+        }
+        val salt = ByteArray(SALT_SIZE)
+        val iv = ByteArray(IV_SIZE)
+
+        if (inputStream.read(salt) != SALT_SIZE) error("Invalid backup file: salt missing")
+        if (inputStream.read(iv) != IV_SIZE) error("Invalid backup file: iv missing")
+
+        val factory = SecretKeyFactory.getInstance(KEY_DERIVATION)
+        val spec = PBEKeySpec(password, salt, ITERATIONS, KEY_LENGTH)
+        val secretKey = SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
+
+        val cipher = Cipher.getInstance(ALGORITHM)
+        cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(TAG_LENGTH_BITS, iv))
+
+        CipherInputStream(inputStream, cipher).use { cis ->
+            cis.copyTo(outputStream)
+            outputStream.flush()
+        }
+    }
+
+    fun isEncryptedBackup(inputStream: InputStream): Boolean {
+        if (!inputStream.markSupported()) return false
+        inputStream.mark(MAGIC_HEADER.size)
+        val magic = ByteArray(MAGIC_HEADER.size)
+        val read = inputStream.read(magic)
+        inputStream.reset()
+        return read == MAGIC_HEADER.size && magic.contentEquals(MAGIC_HEADER)
+    }
+
+    private val MAGIC_HEADER = "BTLBAK01".toByteArray(Charsets.UTF_8)
 }

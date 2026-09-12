@@ -10,6 +10,8 @@
 package moe.rukamori.archivetune.ui.screens.settings
 
 import androidx.compose.foundation.Image
+import com.btl.music.updater.BtlOtaUpdater
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -104,6 +106,7 @@ fun AboutScreen(
     viewModel: AboutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val otaState by viewModel.otaState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val scrollBehavior = appBarScrollBehavior()
 
@@ -117,6 +120,7 @@ fun AboutScreen(
 
     AboutScreenContent(
         state = state,
+        otaState = otaState,
         scrollBehavior = scrollBehavior,
         onNavigateUp = navController::navigateUp,
         onNavigateHome = navController::backToMain,
@@ -127,6 +131,9 @@ fun AboutScreen(
         onDismissDialog = viewModel::dismissDialog,
         onRetryTranslationContributors = viewModel::retryTranslationContributors,
         onRetryDependencyLicenses = viewModel::retryDependencyLicenses,
+        onCheckForUpdates = viewModel::checkForUpdates,
+        onStartOtaDownload = viewModel::startOtaDownload,
+        onInstallDownloadedApk = viewModel::installDownloadedApk,
     )
 }
 
@@ -134,6 +141,7 @@ fun AboutScreen(
 @Composable
 private fun AboutScreenContent(
     state: AboutScreenState,
+    otaState: com.btl.music.updater.BtlOtaUpdater.OtaState,
     scrollBehavior: TopAppBarScrollBehavior,
     onNavigateUp: () -> Unit,
     onNavigateHome: () -> Unit,
@@ -144,6 +152,9 @@ private fun AboutScreenContent(
     onDismissDialog: () -> Unit,
     onRetryTranslationContributors: () -> Unit,
     onRetryDependencyLicenses: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onStartOtaDownload: (String) -> Unit,
+    onInstallDownloadedApk: (java.io.File) -> Unit,
 ) {
     val listState = rememberLazyListState()
 
@@ -223,10 +234,14 @@ private fun AboutScreenContent(
             is AboutScreenState.Success -> {
                 AboutSuccessContent(
                     model = state.model,
+                    otaState = otaState,
                     onOpenUri = onOpenUri,
                     onRetryContributors = onRetryContributors,
                     onOpenTranslationContributors = onOpenTranslationContributors,
                     onOpenDependencyLicenses = onOpenDependencyLicenses,
+                    onCheckForUpdates = onCheckForUpdates,
+                    onStartOtaDownload = onStartOtaDownload,
+                    onInstallDownloadedApk = onInstallDownloadedApk,
                     modifier =
                         Modifier
                             .fillMaxSize()
@@ -664,10 +679,14 @@ private fun DependencyLicenseListItem(
 @Composable
 private fun AboutSuccessContent(
     model: AboutUiModel,
+    otaState: BtlOtaUpdater.OtaState,
     onOpenUri: (String) -> Unit,
     onRetryContributors: () -> Unit,
     onOpenTranslationContributors: () -> Unit,
     onOpenDependencyLicenses: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onStartOtaDownload: (String) -> Unit,
+    onInstallDownloadedApk: (File) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues,
     listState: LazyListState,
@@ -685,6 +704,18 @@ private fun AboutSuccessContent(
                 AboutIdentityCard(
                     model = model,
                     onOpenUri = onOpenUri,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        item(key = "ota_update", contentType = "about_ota_update") {
+            AboutContentContainer {
+                AboutOtaUpdateCard(
+                    otaState = otaState,
+                    onCheckForUpdates = onCheckForUpdates,
+                    onStartOtaDownload = onStartOtaDownload,
+                    onInstallDownloadedApk = onInstallDownloadedApk,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -1380,6 +1411,173 @@ private fun AboutLeadingIcon(
                     .padding(AboutSpacing.sm)
                     .size(20.dp),
         )
+    }
+}
+
+@Composable
+private fun AboutOtaUpdateCard(
+    otaState: BtlOtaUpdater.OtaState,
+    onCheckForUpdates: () -> Unit,
+    onStartOtaDownload: (String) -> Unit,
+    onInstallDownloadedApk: (File) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.extraLarge,
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(AboutSpacing.md),
+            verticalArrangement = Arrangement.spacedBy(AboutSpacing.sm),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(AboutSpacing.sm),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.sync),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "Release Updates",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(
+                            text = "BTL GitHub Releases & OTA",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                when (otaState) {
+                    is BtlOtaUpdater.OtaState.Checking -> {
+                        LoadingIndicator(modifier = Modifier.size(20.dp))
+                    }
+                    is BtlOtaUpdater.OtaState.Available -> {
+                        Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                            Text("New", color = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+
+            when (otaState) {
+                is BtlOtaUpdater.OtaState.Idle -> {
+                    Text(
+                        text = "Check if a newer version of BTL Music is available.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(
+                        onClick = onCheckForUpdates,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("Check for Updates")
+                    }
+                }
+                is BtlOtaUpdater.OtaState.Checking -> {
+                    Text(
+                        text = "Connecting to GitHub release server...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                is BtlOtaUpdater.OtaState.UpToDate -> {
+                    Text(
+                        text = "You are currently running the latest build!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    TextButton(
+                        onClick = onCheckForUpdates,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("Check Again")
+                    }
+                }
+                is BtlOtaUpdater.OtaState.Available -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(AboutSpacing.xxs)) {
+                        Text(
+                            text = "Version ${otaState.tagName} (${String.format(java.util.Locale.US, "%.1f", otaState.fileSizeMb)} MB)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (otaState.releaseNotes.isNotBlank()) {
+                            Text(
+                                text = otaState.releaseNotes.take(180) + if (otaState.releaseNotes.length > 180) "..." else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(
+                            onClick = { onStartOtaDownload(otaState.downloadUrl) },
+                        ) {
+                            Text("Download & Install")
+                        }
+                    }
+                }
+                is BtlOtaUpdater.OtaState.Downloading -> {
+                    Text(
+                        text = "Download queued in Download Manager. Check notifications for progress.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                is BtlOtaUpdater.OtaState.ReadyToInstall -> {
+                    Text(
+                        text = "Update downloaded successfully.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    TextButton(
+                        onClick = { onInstallDownloadedApk(otaState.apkFile) },
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("Install Now")
+                    }
+                }
+                is BtlOtaUpdater.OtaState.Error -> {
+                    Text(
+                        text = "Update error: ${otaState.message}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    TextButton(
+                        onClick = onCheckForUpdates,
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text("Retry")
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -74,7 +74,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import moe.rukamori.archivetune.playback.equalizer.BtlAudioVisualizerHub
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -624,6 +628,56 @@ private fun AdvancedControls(
                 onValueChange = onVirtualizerValueChange,
                 onValueChangeFinished = onVirtualizerValueChangeFinished,
             )
+        }
+        EqualizerSection(
+            title = "BTL Spatial Audio & Karaoke",
+            subtitle = "3D soundstage virtualization & real-time vocal suppressor",
+        ) {
+            var karaokeOn by remember { mutableStateOf(BtlAudioVisualizerHub.isKaraokeEnabled) }
+            var spatialMode by remember { mutableIntStateOf(BtlAudioVisualizerHub.spatialAudioMode) }
+
+            SettingsToggle(
+                title = "Karaoke Mode",
+                description = "Differential vocal cancellation with low-frequency bass restoration",
+                checked = karaokeOn,
+                enabled = model.enabled,
+                onCheckedChange = { isChecked ->
+                    BtlAudioVisualizerHub.isKaraokeEnabled = isChecked
+                    karaokeOn = isChecked
+                },
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "3D Binaural Soundstage",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = "Acoustic crossfeed modeling for headphones & earphones",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                val modes = listOf("Off", "Studio", "Concert", "Lounge")
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    modes.forEachIndexed { index, modeName ->
+                        SegmentedButton(
+                            selected = spatialMode == index,
+                            onClick = {
+                                BtlAudioVisualizerHub.spatialAudioMode = index
+                                spatialMode = index
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
+                            enabled = model.enabled,
+                        ) {
+                            Text(text = modeName, maxLines = 1)
+                        }
+                    }
+                }
+            }
         }
         EqualizerSection(title = stringResource(R.string.eq_profiles), subtitle = stringResource(R.string.eq_profiles_description)) {
             Row(

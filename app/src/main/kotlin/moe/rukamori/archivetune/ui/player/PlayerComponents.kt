@@ -156,6 +156,8 @@ import moe.rukamori.archivetune.extensions.toggleRepeatMode
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.PlayerConnection
 import moe.rukamori.archivetune.ui.component.AudiophileCodecBadge
+import moe.rukamori.archivetune.ui.component.BtlAgslFluidShader
+import moe.rukamori.archivetune.ui.component.BtlSpectrumVisualizer
 import moe.rukamori.archivetune.ui.component.BottomSheetPageState
 import moe.rukamori.archivetune.ui.component.BottomSheetState
 import moe.rukamori.archivetune.ui.component.MenuState
@@ -2806,6 +2808,17 @@ private fun V8PlaybackProgress(
                 modifier = Modifier.align(Alignment.CenterEnd),
             )
         }
+
+        BtlSpectrumVisualizer(
+            height = 32.dp,
+            barCount = 32,
+            accentColor = foreground.copy(alpha = 0.85f),
+            secondaryColor = foreground.copy(alpha = 0.35f),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+        )
     }
 }
 
@@ -3888,6 +3901,14 @@ fun PlayerBackground(
     val styleAppliesBlur =
         effectiveBlurRadius > 0f && effectiveBlurRadius >= 0.5f
     Box(modifier = Modifier.fillMaxSize()) {
+        if (gradientColors.isNotEmpty()) {
+            BtlAgslFluidShader(
+                primaryColor = gradientColors.first(),
+                secondaryColor = gradientColors.getOrElse(1) { gradientColors.first() },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
         when (playerBackground) {
             PlayerBackgroundStyle.BLUR -> {
                 AnimatedContent(

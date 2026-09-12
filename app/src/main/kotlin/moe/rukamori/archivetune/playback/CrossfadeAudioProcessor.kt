@@ -39,6 +39,12 @@ class CrossfadeAudioProcessor : BaseAudioProcessor() {
     @Volatile
     private var sampleRate: Int = 44100
 
+    @Volatile
+    private var silenceSampleCount: Long = 0L
+
+    val isOutroSilence: Boolean
+        get() = silenceSampleCount > (sampleRate * 0.4).toLong()
+
     @Synchronized
     fun startFadeIn(durationMs: Long) {
         if (durationMs <= 0) {
@@ -82,6 +88,21 @@ class CrossfadeAudioProcessor : BaseAudioProcessor() {
         val outputBuffer = replaceOutputBuffer(remaining)
 
         if (fadeState == FadeState.IDLE) {
+            val shortBuffer = inputBuffer.order(ByteOrder.nativeOrder()).asShortBuffer()
+            var maxAmp = 0
+            val count = shortBuffer.remaining()
+            val step = maxOf(1, count / 16)
+            var p = 0
+            while (p < count) {
+                val amp = kotlin.math.abs(shortBuffer.get(p).toInt())
+                if (amp > maxAmp) maxAmp = amp
+                p += step
+            }
+            if (maxAmp < 250) {
+                silenceSampleCount += count
+            } else {
+                silenceSampleCount = 0L
+            }
             outputBuffer.put(inputBuffer)
             outputBuffer.flip()
             return

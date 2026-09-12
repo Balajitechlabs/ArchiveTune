@@ -145,6 +145,9 @@ import moe.rukamori.archivetune.constants.DeviceMutePlaybackRecoveryVolumeKey
 import moe.rukamori.archivetune.constants.DiscordShowWhenPausedKey
 import moe.rukamori.archivetune.constants.DiscordTokenKey
 import moe.rukamori.archivetune.constants.EnableDiscordRPCKey
+import moe.rukamori.archivetune.constants.EnableWebRemoteKey
+import moe.rukamori.archivetune.constants.WebRemoteLanModeKey
+import moe.rukamori.archivetune.constants.WebRemotePortKey
 import moe.rukamori.archivetune.constants.EnableLastFMScrobblingKey
 import moe.rukamori.archivetune.constants.EqualizerAutoHeadroomEnabledKey
 import moe.rukamori.archivetune.constants.EqualizerBandLevelsMbKey
@@ -323,6 +326,9 @@ class MusicService :
 
     @Inject
     lateinit var bluetoothDeviceProfileManager: BluetoothDeviceProfileManager
+
+    @Inject
+    lateinit var webRemoteServer: moe.rukamori.archivetune.remote.WebRemoteServer
 
     private var playbackPreloadConfiguration: PlaybackPreloadConfiguration? = null
 
@@ -1525,6 +1531,44 @@ class MusicService :
                             ensurePresenceManager()
                         }
                     }
+                }
+            }
+
+        dataStore.data
+            .map { prefs ->
+                Triple(
+                    prefs[EnableWebRemoteKey] ?: false,
+                    prefs[WebRemoteLanModeKey] ?: true,
+                    prefs[WebRemotePortKey] ?: 8080,
+                )
+            }
+            .distinctUntilChanged()
+            .collectLatest(scope) { (enabled, lanMode, port) ->
+                if (enabled) {
+                    webRemoteServer.start(
+                        port = port,
+                        lanModeEnabled = lanMode,
+                        getCurrentSong = {
+                            val song = currentSong.value
+                            song?.title to song?.artists?.joinToString(", ") { it.name }
+                        },
+                        isPlaying = { player.isPlaying },
+                        onCommand = { cmd ->
+                            scope.launch {
+                                when (cmd) {
+                                    "play" -> player.play()
+                                    "pause" -> player.pause()
+                                    "playpause" -> {
+                                        if (player.isPlaying) player.pause() else player.play()
+                                    }
+                                    "next" -> player.seekToNextMediaItem()
+                                    "prev" -> player.seekToPreviousMediaItem()
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    webRemoteServer.stop()
                 }
             }
 
@@ -8403,6 +8447,10 @@ class MusicService :
         }
         try {
             connectivityObserver.unregister()
+        } catch (_: Exception) {
+        }
+        try {
+            webRemoteServer.stop()
         } catch (_: Exception) {
         }
         abandonAudioFocus()
