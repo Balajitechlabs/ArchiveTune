@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 
 @Composable
 internal fun rememberOfflineArtworkImageRequest(imageUrl: String?): ImageRequest? {
@@ -24,6 +25,7 @@ internal fun rememberOfflineArtworkImageRequest(imageUrl: String?): ImageRequest
                 ImageRequest
                     .Builder(context)
                     .data(url)
+                    .crossfade(true)
                     .memoryCacheKey(url)
                     .diskCacheKey(url)
                     .diskCachePolicy(CachePolicy.ENABLED)

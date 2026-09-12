@@ -46,6 +46,7 @@ import moe.rukamori.archivetune.innertube.models.YouTubeLocale
 import moe.rukamori.archivetune.kugou.KuGou
 import moe.rukamori.archivetune.lastfm.LastFM
 import moe.rukamori.archivetune.paxsenix.PaxsenixLyrics
+import moe.rukamori.archivetune.playback.AutoDownloadManager
 import moe.rukamori.archivetune.playback.stream.YoutubeiStreamRepository
 import moe.rukamori.archivetune.scrobbling.LastFmServiceConfig
 import moe.rukamori.archivetune.storage.StorageFolderKind
@@ -92,6 +93,9 @@ class App :
 
     @Inject
     lateinit var startCanvasPolicy: StartCanvasPolicyUseCase
+
+    @Inject
+    lateinit var autoDownloadManager: AutoDownloadManager
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -185,6 +189,14 @@ class App :
                 throw cancellation
             } catch (throwable: Throwable) {
                 Timber.tag("YoutubeiResolver").w(throwable, "youtubei.js runtime prewarm failed")
+            }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                autoDownloadManager.scheduleAutoDownloadWorker()
+            }.onFailure {
+                Timber.tag("AutoDownload").w(it, "Failed to schedule AutoDownloadWorker")
             }
         }
 

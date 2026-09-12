@@ -199,7 +199,7 @@ fun NavGraphBuilder.navigationBuilder(
             if (disableAnimations) {
                 fadeIn(tween(0))
             } else {
-                fadeIn(tween(250))
+                fadeIn(tween(220)) + slideInHorizontally(tween(220)) { it / 4 }
             }
         },
         exitTransition = {
@@ -208,7 +208,7 @@ fun NavGraphBuilder.navigationBuilder(
             } else if (targetState.destination.route?.startsWith(OnlineSearchResultRoutePrefix) == true) {
                 fadeOut(tween(200))
             } else {
-                fadeOut(tween(200)) + slideOutHorizontally { -it / 2 }
+                fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { -it / 4 }
             }
         },
         popEnterTransition = {
@@ -217,14 +217,14 @@ fun NavGraphBuilder.navigationBuilder(
             } else if (initialState.destination.route?.startsWith(OnlineSearchResultRoutePrefix) == true) {
                 fadeIn(tween(250))
             } else {
-                fadeIn(tween(250)) + slideInHorizontally { -it / 2 }
+                fadeIn(tween(250)) + slideInHorizontally(tween(250)) { -it / 4 }
             }
         },
         popExitTransition = {
             if (disableAnimations) {
                 fadeOut(tween(0))
             } else {
-                fadeOut(tween(200))
+                fadeOut(tween(200)) + slideOutHorizontally(tween(200)) { it / 4 }
             }
         },
     ) {

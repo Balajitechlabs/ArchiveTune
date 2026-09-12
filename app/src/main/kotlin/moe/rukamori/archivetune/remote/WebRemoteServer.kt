@@ -13,6 +13,7 @@ import timber.log.Timber
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import javax.inject.Inject
@@ -25,13 +26,15 @@ class WebRemoteServer @Inject constructor() {
     private var isRunning = false
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    fun start(port: Int = 8080, onCommand: (String) -> Unit) {
+    fun start(port: Int = 8080, lanModeEnabled: Boolean = false, onCommand: (String) -> Unit) {
         if (isRunning) return
         isRunning = true
         scope.launch {
             try {
-                serverSocket = ServerSocket(port)
-                Timber.tag(TAG).i("WebRemoteServer listening on port $port")
+                val bindAddress = if (lanModeEnabled) null else InetAddress.getByName("127.0.0.1")
+                serverSocket = ServerSocket(port, 50, bindAddress)
+                val boundTo = if (lanModeEnabled) "0.0.0.0:$port (LAN)" else "127.0.0.1:$port (localhost)"
+                Timber.tag(TAG).i("WebRemoteServer listening on $boundTo")
 
                 while (isRunning) {
                     val client = serverSocket?.accept() ?: break

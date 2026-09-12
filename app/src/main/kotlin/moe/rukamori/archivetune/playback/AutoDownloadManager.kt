@@ -34,8 +34,12 @@ class AutoDownloadManager @Inject constructor(
             .setConstraints(constraints)
             .build()
 
-        WorkManager.getInstance(context).enqueue(workRequest)
-        Timber.tag(TAG).d("Enqueued background Wi-Fi auto download worker")
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            WORK_NAME,
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            workRequest,
+        )
+        Timber.tag(TAG).d("Enqueued background Wi-Fi auto download worker ($WORK_NAME)")
     }
 
     class AutoDownloadWorker(
@@ -57,5 +61,6 @@ class AutoDownloadManager @Inject constructor(
 
     companion object {
         private const val TAG = "AutoDownloadManager"
+        const val WORK_NAME = "btl_auto_download_worker"
     }
 }

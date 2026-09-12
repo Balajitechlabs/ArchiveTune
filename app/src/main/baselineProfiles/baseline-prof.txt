@@ -1,0 +1,17 @@
+# ArchiveTune Baseline Profile
+# Generated stub — run :app:generateBaselineProfile with Macrobenchmark to populate.
+# Critical startup classes to pre-JIT compile on first install.
+
+# MainActivity cold start
+Lmoe/rukamori/archivetune/MainActivity;
+Lmoe/rukamori/archivetune/App;
+
+# Playback pipeline
+Lmoe/rukamori/archivetune/playback/MusicService;
+Lmoe/rukamori/archivetune/playback/stream/ResolveAudioStreamUseCase;
+Lmoe/rukamori/archivetune/utils/YTPlayerUtils;
+
+# Core Compose UI
+Lmoe/rukamori/archivetune/ui/screens/HomeScreen_**;
+Lmoe/rukamori/archivetune/ui/screens/library/LibraryScreen_**;
+Lmoe/rukamori/archivetune/ui/component/Items_**;

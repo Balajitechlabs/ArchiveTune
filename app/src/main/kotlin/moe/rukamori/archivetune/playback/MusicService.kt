@@ -117,7 +117,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -3361,7 +3361,8 @@ class MusicService :
 
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 hasAudioFocus = false
-                pauseForAudioFocusLoss(resumeWhenFocusReturns = true)
+                // Duck to 20% volume — keep playing, AUDIOFOCUS_GAIN will restore to 1f
+                audioFocusVolumeFactor.value = 0.2f
 
                 lastAudioFocusState = focusChange
             }
@@ -3551,25 +3552,31 @@ class MusicService :
                 context: Context,
                 intent: Intent,
             ) {
-                if (intent.action != BluetoothDevice.ACTION_ACL_CONNECTED) return
-                if (!autoStartOnBluetoothEnabled) return
-
-                val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
-
-                val isAudioDevice =
-                    try {
-                        val majorClass = device.bluetoothClass?.majorDeviceClass
-                        majorClass == BluetoothClass.Device.Major.AUDIO_VIDEO ||
-                            majorClass == BluetoothClass.Device.Major.WEARABLE
-                    } catch (_: SecurityException) {
-                        true
+                when (intent.action) {
+                    AudioManager.ACTION_AUDIO_BECOMING_NOISY,
+                    BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                        Timber.tag("BluetoothAuto").i("Audio becoming noisy / device disconnected — pausing")
+                        if (player.playWhenReady) player.pause()
                     }
+                    BluetoothDevice.ACTION_ACL_CONNECTED -> {
+                        if (!autoStartOnBluetoothEnabled) return
 
-                if (!isAudioDevice) return
+                        val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                        val isAudioDevice =
+                            try {
+                                val majorClass = device.bluetoothClass?.majorDeviceClass
+                                majorClass == BluetoothClass.Device.Major.AUDIO_VIDEO ||
+                                    majorClass == BluetoothClass.Device.Major.WEARABLE
+                            } catch (_: SecurityException) {
+                                true
+                            }
+                        if (!isAudioDevice) return
 
-                scope.launch {
-                    delay(1500)
-                    handleBluetoothAutoStart()
+                        scope.launch {
+                            delay(1500)
+                            handleBluetoothAutoStart()
+                        }
+                    }
                 }
             }
         }
@@ -3602,9 +3609,12 @@ class MusicService :
             return
         }
 
-        val filter = IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED)
+        val filter = IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED).apply {
+            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
+            addAction(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(bluetoothReceiver, filter, RECEIVER_EXPORTED)
+            registerReceiver(bluetoothReceiver, filter, RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(bluetoothReceiver, filter)
         }
@@ -8385,9 +8395,7 @@ class MusicService :
         }
         try {
             if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
-                runBlocking {
-                    saveQueueToDisk()
-                }
+                CoroutineScope(Dispatchers.IO + NonCancellable).launch { saveQueueToDisk() }
             }
         } catch (_: Exception) {
         }
@@ -8481,7 +8489,7 @@ class MusicService :
             }
 
             if (dataStore.get(PersistentQueueKey, true) && player.mediaItemCount > 0) {
-                runBlocking { saveQueueToDisk() }
+                CoroutineScope(Dispatchers.IO + NonCancellable).launch { saveQueueToDisk() }
             }
         } catch (_: Exception) {
         }
