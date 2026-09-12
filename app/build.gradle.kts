@@ -62,7 +62,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-    applicationId = "moe.rukamori.archivetune"
+    applicationId = "com.btl.music"
         minSdk = 26
         targetSdk = 37
         versionCode = 141
@@ -246,7 +246,7 @@ android {
     }
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = false
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
@@ -278,7 +278,9 @@ android {
             useLegacyPackaging = false
             keepDebugSymbols += listOf(
                 "**/libandroidx.graphics.path.so",
-                "**/libdatastore_shared_counter.so"
+                "**/libdatastore_shared_counter.so",
+                "**/libbtl_core.so",
+                "**/libquickjs.so"
             )
         }
         resources {

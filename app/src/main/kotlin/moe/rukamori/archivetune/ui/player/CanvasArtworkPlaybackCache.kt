@@ -773,16 +773,21 @@ private fun okhttp3.HttpUrl.isYouTubeMediaHost(): Boolean {
 
 private fun File.isUsableFile(): Boolean = isFile && length() > 0L
 
+private val validatedCanvasFiles = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+
 private fun File.isValidCanvasVideo(): Boolean {
+    if (validatedCanvasFiles.contains(absolutePath)) return true
     val extractor = MediaExtractor()
     val codecList = MediaCodecList(MediaCodecList.REGULAR_CODECS)
     return try {
         extractor.setDataSource(absolutePath)
-        (0 until extractor.trackCount).any { index ->
+        val isValid = (0 until extractor.trackCount).any { index ->
             val format = extractor.getTrackFormat(index)
             val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
             mime.startsWith("video/") && codecList.findDecoderForFormat(format) != null
         }
+        if (isValid) validatedCanvasFiles.add(absolutePath)
+        isValid
     } catch (error: Throwable) {
         Timber.tag(CanvasCacheLogTag).w(error, "Failed to inspect cached canvas video")
         false

@@ -291,6 +291,7 @@ enum class AudioQuality {
 }
 
 enum class PlayerStreamClient {
+    VISIONOS,
     ANDROID_VR,
     WEB_REMIX,
     HI_RES_LOSSLESS,

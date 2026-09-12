@@ -17,6 +17,7 @@ enum class StreamPurpose {
 
 enum class StreamSource {
     YOUTUBEI,
+    FALLBACK_CLIENT,
 }
 
 data class AudioStreamRequest(

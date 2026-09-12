@@ -83,6 +83,7 @@ import androidx.media3.exoplayer.analytics.PlaybackStats
 import androidx.media3.exoplayer.analytics.PlaybackStatsListener
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.SilenceSkippingAudioProcessor
+import moe.rukamori.archivetune.playback.equalizer.BtlNativeAudioProcessor
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -363,7 +364,7 @@ class MusicService :
     private var scopeJob = SupervisorJob()
     private var scope = CoroutineScope(Dispatchers.Main + scopeJob)
     private var ioScope = CoroutineScope(Dispatchers.IO + scopeJob)
-    private val binder = MusicBinder()
+    private val binder = MusicBinder(this)
     private var hasBoundClients = false
     private var idleStopJob: Job? = null
 
@@ -380,6 +381,26 @@ class MusicService :
     private val remotePlaybackTrackingUrlCache = ConcurrentHashMap<String, String>()
     private val cacheBypassMediaIds = ConcurrentHashMap.newKeySet<String>()
     private val castMimeTypeCache = LruCache<String, String>(128)
+    private val formatEntityCache = LruCache<String, FormatEntity>(128)
+    private val inFlightSongRecovery = ConcurrentHashMap<String, Job>()
+    val btlNativeAudioProcessor = BtlNativeAudioProcessor()
+
+    private fun scheduleSongRecovery(
+        mediaId: String,
+        playbackData: YTPlayerUtils.PlaybackData? = null,
+    ) {
+        val existingJob = inFlightSongRecovery[mediaId]
+        if (existingJob != null && existingJob.isActive) return
+
+        val newJob = scope.launch(Dispatchers.IO) {
+            try {
+                recoverSong(mediaId, playbackData)
+            } finally {
+                inFlightSongRecovery.remove(mediaId)
+            }
+        }
+        inFlightSongRecovery[mediaId] = newJob
+    }
     private val mediaOkHttpClient: OkHttpClient by lazy {
         OkHttpClient
             .Builder()
@@ -3677,16 +3698,33 @@ class MusicService :
 
         var throwable: Throwable? = error.cause
         while (throwable != null) {
+            val isNetworkOrigin = throwable is androidx.media3.datasource.HttpDataSource.HttpDataSourceException ||
+                throwable.stackTrace.any { element ->
+                    element.className.startsWith("okhttp3") ||
+                    element.className.startsWith("moe.rukamori.archivetune.playback.ChunkedDataSource") ||
+                    element.className.startsWith("java.net")
+                }
+
+            if (!isNetworkOrigin) {
+                when {
+                    throwable is Cache.CacheException -> {
+                        return true
+                    }
+
+                    throwable is EOFException && isContentCached &&
+                        throwable.stackTrace.any { it.className.startsWith("androidx.media3.datasource.cache") } -> {
+                        return true
+                    }
+
+                    throwable is IOException && isContentCached &&
+                        throwable.stackTrace.any { it.className.startsWith("androidx.media3.datasource.cache") } &&
+                        throwable.message?.contains("unexpected end of stream", ignoreCase = true) == true -> {
+                        return true
+                    }
+                }
+            }
+
             when {
-                throwable is EOFException || throwable is Cache.CacheException -> {
-                    return true
-                }
-
-                throwable is IOException &&
-                    throwable.message?.contains("unexpected end of stream", ignoreCase = true) == true -> {
-                    return true
-                }
-
                 throwable is IllegalStateException || throwable is IllegalArgumentException -> {
                     if (throwable.stackTrace.any { it.className.startsWith("androidx.media3.extractor") }) {
                         return true
@@ -6233,6 +6271,10 @@ class MusicService :
             }.getOrNull()
 
     private fun applyEqSettingsToEffects(settings: EqSettings) {
+        btlNativeAudioProcessor.setEnabled(settings.enabled)
+        val tenBandGains = resampleLevelsByIndex(settings.bandLevelsMb, 10).map { it / 100.0f }.toFloatArray()
+        btlNativeAudioProcessor.setAllBands(tenBandGains)
+
         val eq = equalizer ?: return
         val caps = eqCapabilities.value
         val bandCount = caps?.bandCount ?: readAudioEffectValue("equalizer band count") { eq.numberOfBands.toInt() } ?: 0
@@ -7474,12 +7516,15 @@ class MusicService :
                     dataSpec.uri.shouldBypassPlayerCache() || (mediaId != null && mediaId in cacheBypassMediaIds) -> directFactory
                     else -> {
                         if (mediaId != null) {
-                            database.getFormatByIdBlocking(mediaId)?.let { format ->
-                                format.toCastMimeType()?.let { castMimeTypeCache.put(mediaId, it) }
-                                audioNormalizationFactorCache[mediaId] =
-                                    calculateAudioNormalizationFactor(format, normalizeAudio = true)
+                            val format = formatEntityCache.get(mediaId) ?: database.getFormatByIdBlocking(mediaId)?.also {
+                                formatEntityCache.put(mediaId, it)
                             }
-                            scope.launch(Dispatchers.IO) { recoverSong(mediaId) }
+                            format?.let {
+                                it.toCastMimeType()?.let { castMimeTypeCache.put(mediaId, it) }
+                                audioNormalizationFactorCache[mediaId] =
+                                    calculateAudioNormalizationFactor(it, normalizeAudio = true)
+                            }
+                            scheduleSongRecovery(mediaId)
                         }
                         if (mediaId != null && downloadCache.isFullyCached(mediaId)) {
                             downloadedFactory
@@ -7727,12 +7772,13 @@ class MusicService :
             }
         }
 
+        formatEntityCache.put(mediaId, formatEntity)
         database.query {
             upsert(
                 formatEntity,
             )
         }
-        scope.launch(Dispatchers.IO) { recoverSong(mediaId, nonNullPlayback) }
+        scheduleSongRecovery(mediaId, nonNullPlayback)
 
         val streamUrl = nonNullPlayback.streamUrl
 
@@ -7888,6 +7934,7 @@ class MusicService :
                 .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
                 .setAudioProcessorChain(
                     DefaultAudioSink.DefaultAudioProcessorChain(
+                        btlNativeAudioProcessor,
                         SilenceSkippingAudioProcessor(
                             1_500_000L,
                             0.35f,
@@ -8360,6 +8407,8 @@ class MusicService :
         } catch (_: Exception) {
         }
         nextStreamPreloader.cancel()
+        DiscordPresenceManager.setOnTransportInvalidated(null)
+        binder.clear()
         scopeJob.cancel()
     }
 
@@ -8530,9 +8579,13 @@ class MusicService :
         widgetUpdater.updateProgressTracking()
     }
 
-    inner class MusicBinder : Binder() {
-        val service: MusicService
-            get() = this@MusicService
+    class MusicBinder(service: MusicService?) : Binder() {
+        var service: MusicService? = service
+            private set
+
+        fun clear() {
+            service = null
+        }
     }
 
     companion object {

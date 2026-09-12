@@ -70,12 +70,18 @@ internal fun CanvasArtworkPlayer(
             ?.takeIf { it.isNotBlank() }
             ?.takeUnless { it == primary }
     val initial = primary ?: fallback ?: return
-    var currentUrl by remember(initial) { mutableStateOf(initial) }
-    var isVideoReady by remember(initial) { mutableStateOf(false) }
-    var hasPlaybackFailed by remember(initial) { mutableStateOf(false) }
+    var currentUrl by remember { mutableStateOf(initial) }
+    var isVideoReady by remember { mutableStateOf(false) }
+    var hasPlaybackFailed by remember { mutableStateOf(false) }
     val shouldPlay by rememberUpdatedState(isPlaying)
     val isStarted = remember(lifecycleOwner) {
         { lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
+    }
+
+    LaunchedEffect(initial) {
+        currentUrl = initial
+        isVideoReady = false
+        hasPlaybackFailed = false
     }
 
     val okHttpClient =
@@ -127,7 +133,7 @@ internal fun CanvasArtworkPlayer(
             DefaultRenderersFactory(context).setEnableDecoderFallback(true)
         }
     val exoPlayer =
-        remember(initial, mediaSourceFactory, renderersFactory) {
+        remember(context, mediaSourceFactory, renderersFactory) {
             ExoPlayer
                 .Builder(context)
                 .setMediaSourceFactory(mediaSourceFactory)

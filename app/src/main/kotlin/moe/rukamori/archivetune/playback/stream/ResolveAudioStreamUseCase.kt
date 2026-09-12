@@ -7,16 +7,22 @@
 
 package moe.rukamori.archivetune.playback.stream
 
+import android.content.Context
+import android.net.ConnectivityManager
 import android.os.Looper
 import android.os.SystemClock
 import androidx.annotation.WorkerThread
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.guava.future
 import moe.rukamori.archivetune.utils.YTPlayerUtils
@@ -32,6 +38,7 @@ import kotlin.coroutines.coroutineContext
 class ResolveAudioStreamUseCase
     @Inject
     constructor(
+        @ApplicationContext private val context: Context,
         private val youtubeiRepository: YoutubeiStreamRepository,
     ) {
         private data class CacheKey(
@@ -73,6 +80,7 @@ class ResolveAudioStreamUseCase
         private val cache = ConcurrentHashMap<CacheKey, ResolvedAudioStream>()
         private val inFlightLock = Any()
         private val inFlight = mutableMapOf<InFlightKey, InFlightResolution>()
+        private val youtubeiCircuitBreakerUntilMs = java.util.concurrent.atomic.AtomicLong(0L)
 
         suspend operator fun invoke(request: AudioStreamRequest): ResolvedAudioStream =
             resolve(request, ResolutionConsumer.PLAYBACK)
@@ -324,11 +332,104 @@ class ResolveAudioStreamUseCase
                 } else {
                     request.authState
                 }
-            return youtubeiRepository.resolve(
-                request = request.copy(authState = resolvedAuthState),
-                priority = priority,
-            )
-        }
+            val now = SystemClock.elapsedRealtime()
+            val useYoutubei = now >= youtubeiCircuitBreakerUntilMs.get()
+            if (useYoutubei) {
+                try {
+                    return youtubeiRepository.resolve(
+                        request = request.copy(authState = resolvedAuthState),
+                        priority = priority,
+                    )
+                } catch (failure: Throwable) {
+                    coroutineContext.ensureActive()
+                    val msg = failure.message.orEmpty()
+                    if (msg.contains("out of memory", ignoreCase = true) || failure is OutOfMemoryError) {
+                        youtubeiCircuitBreakerUntilMs.set(now + 10 * 60 * 1000L)
+                        Timber.tag(TAG).w("QuickJs OOM detected; tripped YouTubei circuit breaker for 10 minutes")
+                    }
+                    Timber.tag(TAG).w(failure, "YouTubei resolution failed for %s, falling back to YTPlayerUtils", request.mediaId)
+                }
+            } else {
+                Timber.tag(TAG).d("YouTubei circuit breaker is active; bypassing directly to YTPlayerUtils for %s", request.mediaId)
+            }
+
+            try {
+                val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                val playbackData = YTPlayerUtils.playerResponseForPlayback(
+                    videoId = request.mediaId,
+                    playlistId = request.playlistId,
+                    audioQuality = request.quality,
+                    connectivityManager = connectivityManager,
+                    preferredStreamClient = moe.rukamori.archivetune.constants.PlayerStreamClient.VISIONOS,
+                    networkMetered = request.networkMetered,
+                ).getOrThrow()
+                val format = playbackData.format
+                return ResolvedAudioStream(
+                    url = playbackData.streamUrl,
+                    requestHeaders = emptyMap(),
+                    formatId = format.itag ?: 140,
+                    mimeType = format.mimeType.orEmpty().substringBefore(';'),
+                    codecs = format.mimeType.orEmpty().substringAfter("codecs=\"", "").substringBefore("\""),
+                    bitrate = format.bitrate ?: 128000,
+                    sampleRate = format.audioSampleRate,
+                    contentLength = format.contentLength ?: 0L,
+                    expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
+                    authFingerprint = playbackData.authFingerprint,
+                    source = StreamSource.FALLBACK_CLIENT,
+                    title = playbackData.videoDetails?.title,
+                    durationSeconds = playbackData.videoDetails?.lengthSeconds?.toIntOrNull(),
+                    thumbnailUrl = playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url,
+                    loudnessDb = playbackData.audioConfig?.loudnessDb,
+                    perceptualLoudnessDb = playbackData.audioConfig?.perceptualLoudnessDb,
+                    playbackTrackingUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
+                )
+            } catch (fallbackFailure: Exception) {
+                coroutineContext.ensureActive()
+                Timber.tag(TAG).w(fallbackFailure, "YTPlayerUtils primary fallback failed for %s; recovering auth state and retrying", request.mediaId)
+                try {
+                    runCatching {
+                        YTPlayerUtils.recoverFromBadStreamPlayerResponse(request.mediaId)
+                    }
+                    val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                    val playbackData = YTPlayerUtils.playerResponseForPlayback(
+                        videoId = request.mediaId,
+                        playlistId = request.playlistId,
+                        audioQuality = request.quality,
+                        connectivityManager = connectivityManager,
+                        preferredStreamClient = moe.rukamori.archivetune.constants.PlayerStreamClient.VISIONOS,
+                        networkMetered = request.networkMetered,
+                    ).getOrThrow()
+                    val format = playbackData.format
+                    return ResolvedAudioStream(
+                            url = playbackData.streamUrl,
+                            requestHeaders = emptyMap(),
+                            formatId = format.itag ?: 140,
+                            mimeType = format.mimeType.orEmpty().substringBefore(';'),
+                            codecs = format.mimeType.orEmpty().substringAfter("codecs=\"", "").substringBefore("\""),
+                            bitrate = format.bitrate ?: 128000,
+                            sampleRate = format.audioSampleRate,
+                            contentLength = format.contentLength ?: 0L,
+                            expiresAtMs = System.currentTimeMillis() + (playbackData.streamExpiresInSeconds * 1000L),
+                            authFingerprint = playbackData.authFingerprint,
+                            source = StreamSource.FALLBACK_CLIENT,
+                            title = playbackData.videoDetails?.title,
+                            durationSeconds = playbackData.videoDetails?.lengthSeconds?.toIntOrNull(),
+                            thumbnailUrl = playbackData.videoDetails?.thumbnail?.thumbnails?.lastOrNull()?.url,
+                            loudnessDb = playbackData.audioConfig?.loudnessDb,
+                            perceptualLoudnessDb = playbackData.audioConfig?.perceptualLoudnessDb,
+                            playbackTrackingUrl = playbackData.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
+                        )
+                    } catch (retryFailure: Exception) {
+                        coroutineContext.ensureActive()
+                        Timber.tag(TAG).w(retryFailure, "YTPlayerUtils recovery retry failed; invalidating sessions and retrying YouTubei as last resort")
+                        youtubeiRepository.invalidateSessions()
+                        return youtubeiRepository.resolve(
+                            request = request.copy(authState = resolvedAuthState),
+                            priority = priority,
+                        )
+                    }
+                }
+            }
 
         private fun AudioStreamRequest.resolutionPriority(
             consumer: ResolutionConsumer,

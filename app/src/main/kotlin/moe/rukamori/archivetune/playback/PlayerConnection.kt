@@ -59,7 +59,7 @@ class PlayerConnection(
     val database: MusicDatabase,
     scope: CoroutineScope,
 ) : Player.Listener {
-    val service = binder.service
+    val service = checkNotNull(binder.service) { "MusicService is unavailable" }
     val player = service.player
     val localPlayer = service.localPlayer
 

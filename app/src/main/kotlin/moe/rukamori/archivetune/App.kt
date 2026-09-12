@@ -19,6 +19,7 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.disk.directory
+import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.allowHardware
 import coil3.request.crossfade
@@ -358,9 +359,17 @@ class App :
             applicationScope.launch(Dispatchers.IO) { trimImageDiskCache(diskCache) }
         }
 
+        val memoryCache =
+            MemoryCache.Builder()
+                .maxSizePercent(this, 0.25)
+                .strongReferencesEnabled(true)
+                .build()
+
         return ImageLoader
             .Builder(this)
-            .crossfade(true)
+            .memoryCache(memoryCache)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .crossfade(150)
             .allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
             .diskCache(diskCache)
             .diskCachePolicy(imageCacheConfig.policy)

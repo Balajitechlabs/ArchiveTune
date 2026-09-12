@@ -183,7 +183,7 @@ abstract class InternalDatabase : RoomDatabase() {
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .setTransactionExecutor(
                         java.util.concurrent.Executors
-                            .newFixedThreadPool(4),
+                            .newSingleThreadExecutor(),
                     ).setQueryExecutor(
                         java.util.concurrent.Executors
                             .newFixedThreadPool(4),
@@ -228,20 +228,19 @@ abstract class InternalDatabase : RoomDatabase() {
 private class DatabaseCallback : RoomDatabase.Callback() {
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)
+        try {
+            db.execSQL("PRAGMA busy_timeout = 60000")
+            db.execSQL("PRAGMA cache_size = -16000")
+            db.execSQL("PRAGMA wal_autocheckpoint = 1000")
+            db.execSQL("PRAGMA synchronous = NORMAL")
+            db.execSQL("PRAGMA temp_store = MEMORY")
+            db.execSQL("PRAGMA mmap_size = 268435456")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set PRAGMA settings", e)
+        }
         java.util.concurrent.Executors.newSingleThreadExecutor().execute {
-            try {
-                db.query("PRAGMA busy_timeout = 60000").close()
-                db.query("PRAGMA cache_size = -16000").close()
-                db.query("PRAGMA wal_autocheckpoint = 1000").close()
-                db.query("PRAGMA synchronous = NORMAL").close()
-                db.query("PRAGMA temp_store = MEMORY").close()
-                db.query("PRAGMA mmap_size = 268435456").close()
-
-                cleanupDuplicatePlaylistsOnOpen(db)
-                ensurePlaylistBrowseIdIndex(db)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to set PRAGMA settings", e)
-            }
+            cleanupDuplicatePlaylistsOnOpen(db)
+            ensurePlaylistBrowseIdIndex(db)
         }
     }
 

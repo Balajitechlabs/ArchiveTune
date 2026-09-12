@@ -161,13 +161,18 @@ object YTPlayerUtils {
     private val playbackDataCache = ConcurrentHashMap<PlaybackDataCacheKey, CachedPlaybackData>()
     private val playbackDataResolutionMutexes = Array(PLAYBACK_DATA_RESOLUTION_MUTEX_COUNT) { Mutex() }
     private val failedStreamClientsUntil = ConcurrentHashMap<String, Long>()
+    private val brokenDecipherClients = ConcurrentHashMap.newKeySet<String>()
 
     @Volatile private var lastSuccessfulClientKey: String? = null
+
+    fun isClientDecipherBroken(client: YouTubeClient): Boolean =
+        brokenDecipherClients.contains(StreamClientUtils.buildClientKey(client))
 
     fun clearPlaybackAuthCaches() {
         streamUrlCache.clear()
         playbackDataCache.clear()
         failedStreamClientsUntil.clear()
+        brokenDecipherClients.clear()
         lastSuccessfulClientKey = null
     }
 
@@ -544,6 +549,10 @@ object YTPlayerUtils {
         preferredStreamClient: PlayerStreamClient,
     ): YouTubeClient =
         when (preferredStreamClient) {
+            PlayerStreamClient.VISIONOS -> {
+                VISIONOS
+            }
+
             PlayerStreamClient.ANDROID_VR -> {
                 ANDROID_VR_1_65_10
             }
@@ -569,7 +578,7 @@ object YTPlayerUtils {
             }
 
             else -> {
-                WEB_REMIX
+                VISIONOS
             }
         }
 
@@ -597,10 +606,17 @@ object YTPlayerUtils {
             }
 
         return buildList {
-            add(preferredYouTubeClient)
-            lastSuccessfulClient
-                ?.takeIf { it != preferredYouTubeClient }
-                ?.let { add(it) }
+            // If last successful client worked and does not have broken decipher, try it first
+            if (lastSuccessfulClient != null && !isClientDecipherBroken(lastSuccessfulClient)) {
+                add(lastSuccessfulClient)
+            }
+            // If preferred client is not broken, use it
+            if (!isClientDecipherBroken(preferredYouTubeClient)) {
+                add(preferredYouTubeClient)
+            }
+            // Prioritize fast, direct unthrottled streaming clients
+            add(VISIONOS)
+            add(ANDROID_VR_1_65_10)
             addAll(orderedFallbackClients)
             if (preferredYouTubeClient != MAIN_CLIENT) add(MAIN_CLIENT)
         }.distinct()
@@ -626,7 +642,7 @@ object YTPlayerUtils {
         playlistId: String? = null,
         audioQuality: AudioQuality,
         connectivityManager: ConnectivityManager,
-        preferredStreamClient: PlayerStreamClient = PlayerStreamClient.WEB_REMIX,
+        preferredStreamClient: PlayerStreamClient = PlayerStreamClient.VISIONOS,
         // if provided, this preference overrides ConnectivityManager.isActiveNetworkMetered
         networkMetered: Boolean? = null,
     ): Result<PlaybackData> {
@@ -1187,9 +1203,11 @@ object YTPlayerUtils {
                             describeClient(client),
                             candidateFailure.message,
                         )
+                        val clientKey = StreamClientUtils.buildClientKey(client)
+                        brokenDecipherClients.add(clientKey)
                         markStreamClientFailed(
                             videoId = videoId,
-                            clientKey = StreamClientUtils.buildClientKey(client),
+                            clientKey = clientKey,
                             httpStatusCode = null,
                             authFingerprint = authState.streamCacheFingerprint,
                         )

@@ -478,11 +478,18 @@ fun extractWallpaperThemeColor(context: Context): Color? {
     }
 }
 
-fun ColorScheme.pureBlack(apply: Boolean) =
+fun ColorScheme.pureBlack(apply: Boolean): ColorScheme =
     if (apply) {
         copy(
             surface = Color.Black,
             background = Color.Black,
+            surfaceDim = Color.Black,
+            surfaceContainerLowest = Color.Black,
+            surfaceContainerLow = Color(0xFF060606),
+            surfaceContainer = Color(0xFF0D0D0D),
+            surfaceContainerHigh = Color(0xFF141414),
+            surfaceContainerHighest = Color(0xFF1C1C1C),
+            surfaceVariant = Color(0xFF121212),
         )
     } else {
         this

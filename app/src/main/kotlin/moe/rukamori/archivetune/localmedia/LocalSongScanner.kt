@@ -325,14 +325,37 @@ class LocalSongScanner
             val tracks = mutableListOf<LocalTrackRecord>()
             val retainedArtworkFileNames = linkedSetOf<String>()
             val embeddedLyricsExtractor = EmbeddedLyricsExtractor(context.contentResolver)
-            context.contentResolver
-                .query(
-                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    projection,
-                    selection,
-                    null,
-                    "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC, ${MediaStore.Audio.Media._ID} ASC",
-                )?.use { cursor ->
+            val cursor =
+                try {
+                    context.contentResolver.query(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        projection,
+                        selection,
+                        null,
+                        "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC, ${MediaStore.Audio.Media._ID} ASC",
+                    )
+                } catch (e: Exception) {
+                    Timber.w(e, "LocalSongScanner: Primary query failed, attempting fallback selection")
+                    val fallbackSelection =
+                        buildList {
+                            add("${MediaStore.Audio.Media.SIZE} > 0")
+                            if (sanitizedMinimumDurationMs > 0L) {
+                                add("${MediaStore.Audio.Media.DURATION} >= $sanitizedMinimumDurationMs")
+                            } else {
+                                add("${MediaStore.Audio.Media.DURATION} > 0")
+                            }
+                        }.joinToString(" AND ")
+                    runCatching {
+                        context.contentResolver.query(
+                            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                            projection,
+                            fallbackSelection,
+                            null,
+                            "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC, ${MediaStore.Audio.Media._ID} ASC",
+                        )
+                    }.getOrNull()
+                }
+            cursor?.use { cursor ->
                     val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                     val titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                     val displayNameIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
