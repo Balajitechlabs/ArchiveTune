@@ -60,8 +60,25 @@ If you choose to use a fork, you do so at your own risk.
 
 ---
 
-> [!IMPORTANT]  
-> **Geographic Availability:** If YouTube Music is not supported in your region, a VPN or proxy set to a supported region is required for initial data fetching.
+## 🚀 BTL Music Custom Edition — What's New & Upstream Diff
+
+> **Flagship Modernization by `||BTL||™ (balajitechlabs)`**  
+> Elevated ArchiveTune into a 10/10 GDE-standard audiophile music player powered by native Rust SIMD, real-time ARM NEON spectrum visualizers, dynamic AGSL shaders, and local Wi-Fi Hi-Fi broadcasting.  
+> 👉 **[Read the Full In-Depth Upstream Diff Specification (UPSTREAM_DIFF.md) →](UPSTREAM_DIFF.md)**
+
+### Key Additions & Differences from Upstream
+
+| Feature Category | Upstream ArchiveTune | BTL Music Custom Edition |
+| :--- | :--- | :--- |
+| **Native DSP Audio Engine** | Android framework `Equalizer` (subject to OEM bugs & driver crashes) | **Native Rust SIMD 10-Band Biquad IIR Engine (`libbtl_core.so`)** executing directly in the ExoPlayer audio loop with 0% GC jitter. |
+| **Real-Time Spectrum Visualizer** | None | **ARM NEON 60–120 FPS FFT Visualizer Pipeline** with 32-band logarithmic frequency bars directly below the playback seekbar. |
+| **Dynamic Ambient Shader** | Static blurred image background | **AGSL `RuntimeShader` Dynamic Fluid Mesh** pulsing in real-time with music RMS amplitude and track artwork colors. |
+| **Local Wi-Fi Hi-Fi Streaming** | None | **Zero-Compression 16-Bit 44.1kHz Stereo PCM WAV Streamer (`/stream.wav`)** + responsive web player on port 8080. |
+| **Spatial Audio & Karaoke** | Basic Android virtualizer | **3D Binaural HRTF Crossfeed** (Studio, Concert, Lounge) + **Real-time Karaoke vocal suppressor** with low-pass bass retention. |
+| **Smart DJ Crossfade** | Fixed-timer crossfade | **Smart DJ Outro Silence Detection** (< -42dB) initiating smooth logarithmic crossfades with zero dead air. |
+| **In-App OTA Updater** | Manual browser downloads | **Background GitHub Releases Poller**, SHA-256 validation, and one-tap Android `PackageInstaller` integration. |
+| **Encrypted Backups** | Plaintext unencrypted zip | **AES-256-GCM + PBKDF2 Encrypted Container (`.btlbak`)** with `"BTLBAK01"` magic header detection. |
+| **Memory & Crash Hardening** | 256MB QuickJS heap (OOM risk) | **48MB QuickJS Heap Ceiling** (81% reduction) + Coil 3 `SingletonImageLoader` reuse. |
 
 ---
 

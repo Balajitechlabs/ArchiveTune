@@ -153,3 +153,22 @@
 
 # engine HTTP Android/OkHttp Ktor
 -dontwarn kotlinx.coroutines.**
+
+## BTL Music Native Core & JNI bindings (libbtl_core.so)
+-keep class com.btl.music.native.** { *; }
+-keepclassmembers class com.btl.music.native.** {
+    native <methods>;
+    *;
+}
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+## BTL Audio Hub, DSP, Networking & OTA Updaters
+-keep class moe.rukamori.archivetune.playback.equalizer.** { *; }
+-keep class moe.rukamori.archivetune.remote.** { *; }
+-keep class moe.rukamori.archivetune.updater.** { *; }
+-keep class moe.rukamori.archivetune.utils.BtlEncryptedBackupUtil** { *; }
+-keep class moe.rukamori.archivetune.db.entities.** { *; }
+-keep class moe.rukamori.archivetune.models.** { *; }
+
