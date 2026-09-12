@@ -112,7 +112,7 @@ android {
         val githubOwner =
             System.getenv("GITHUB_OWNER")?.trim()
                 ?: localProperties.getProperty("GITHUB_OWNER")?.trim()
-                ?: "rukamori"
+                ?: "balajitechlabs"
         val githubRepo =
             System.getenv("GITHUB_REPO")?.trim()
                 ?: localProperties.getProperty("GITHUB_REPO")?.trim()
@@ -206,6 +206,8 @@ android {
         release {
             if (hasReleaseSigningConfig) {
                 signingConfig = signingConfigs.getByName("release")
+            } else {
+                signingConfig = signingConfigs.getByName("debug")
             }
             isMinifyEnabled = true
             isShrinkResources = true
@@ -235,11 +237,11 @@ android {
             val nightlyReleaseOwner =
                 System.getenv("NIGHTLY_RELEASE_GITHUB_OWNER")?.trim()
                     ?: localProperties.getProperty("NIGHTLY_RELEASE_GITHUB_OWNER")?.trim()
-                    ?: "rukamori"
+                    ?: "balajitechlabs"
             val nightlyReleaseRepo =
                 System.getenv("NIGHTLY_RELEASE_GITHUB_REPO")?.trim()
                     ?: localProperties.getProperty("NIGHTLY_RELEASE_GITHUB_REPO")?.trim()
-                    ?: "canary"
+                    ?: "ArchiveTune"
             buildConfigField("String", "RELEASE_GITHUB_OWNER", nightlyReleaseOwner.asBuildConfigString())
             buildConfigField("String", "RELEASE_GITHUB_REPO", nightlyReleaseRepo.asBuildConfigString())
         }

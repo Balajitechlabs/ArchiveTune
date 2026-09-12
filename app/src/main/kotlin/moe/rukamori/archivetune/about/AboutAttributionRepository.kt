@@ -24,6 +24,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import moe.rukamori.archivetune.BuildConfig
 import moe.rukamori.archivetune.constants.GitHubTranslationContributorsJsonKey
 import moe.rukamori.archivetune.constants.GitHubTranslationContributorsLastCheckedAtKey
 import moe.rukamori.archivetune.utils.dataStore
@@ -471,9 +472,10 @@ class AboutAttributionRepository
         )
 
         private companion object {
-            const val GitHubCommitsUrl = "https://api.github.com/repos/rukamori/ArchiveTune/commits"
-            const val GitHubTranslationResourceUrl =
-                "https://api.github.com/repos/rukamori/ArchiveTune/contents/app/src/main/res"
+            val GitHubCommitsUrl: String
+                get() = "https://api.github.com/repos/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/commits"
+            val GitHubTranslationResourceUrl: String
+                get() = "https://api.github.com/repos/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/contents/app/src/main/res"
             const val TranslationResourceRoot = "app/src/main/res"
             const val TranslationResourcePrefix = "values-"
             const val TranslationCommitMessagePrefix = "Translated using Weblate"

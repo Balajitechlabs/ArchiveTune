@@ -65,13 +65,14 @@ object Updater {
     private val releaseRepo: String
         get() = BuildConfig.RELEASE_GITHUB_REPO
 
-    private const val CommitHistoryBaseUrl = "https://api.github.com/repos/rukamori/ArchiveTune"
+    private val commitHistoryBaseUrl: String
+        get() = "https://api.github.com/repos/$githubOwner/$githubRepo"
 
     private val stableReleaseBaseUrl: String
         get() = "https://github.com/$releaseOwner/$releaseRepo/releases"
     private val artifactWorkflowRunsUrl: String
-        get() = "https://api.github.com/repos/$githubOwner/$githubRepo/actions/workflows/build.yml/runs" +
-            "?branch=dev&status=success&per_page=1&exclude_pull_requests=true"
+        get() = "https://api.github.com/repos/$githubOwner/$githubRepo/actions/workflows/custom-app.yml/runs" +
+            "?branch=custom-app&status=success&per_page=1&exclude_pull_requests=true"
     var lastCheckTime = -1L
         private set
     private var latestReleaseTag: String? = null
@@ -112,7 +113,7 @@ object Updater {
 
     private fun workflowArtifactDownloadUrl(): String {
         val artifactUrl =
-            "https://nightly.link/$githubOwner/$githubRepo/workflows/build/dev/${workflowArtifactName()}"
+            "https://nightly.link/$githubOwner/$githubRepo/workflows/custom-app/custom-app/${workflowArtifactName()}"
         return if (canDownloadUpdatesDirectly) "$artifactUrl.zip" else artifactUrl
     }
 
@@ -234,7 +235,7 @@ object Updater {
         return if (latestSemVer != null && currentSemVer != null) {
             latestSemVer > currentSemVer
         } else {
-            !isSameVersion(latestVersion, currentVersion)
+            false
         }
     }
 
@@ -365,12 +366,21 @@ object Updater {
         }
     }
 
+    private val scopedReleasesJsonKey
+        get() = androidx.datastore.preferences.core.stringPreferencesKey("github_releases_json_${releaseOwner}_${releaseRepo}")
+    private val scopedReleasesEtagKey
+        get() = androidx.datastore.preferences.core.stringPreferencesKey("github_releases_etag_${releaseOwner}_${releaseRepo}")
+    private val scopedReleasesLastCheckedAtKey
+        get() = androidx.datastore.preferences.core.longPreferencesKey("github_releases_last_checked_at_${releaseOwner}_${releaseRepo}")
+    private val scopedReleasesFingerprintKey
+        get() = androidx.datastore.preferences.core.stringPreferencesKey("github_releases_fingerprint_${releaseOwner}_${releaseRepo}")
+
     suspend fun getCachedReleases(): List<ReleaseInfo> {
         if (!isUpdaterDistribution) {
             return emptyList()
         }
 
-        val cachedJson = App.instance.dataStore.getAsync(GitHubReleasesJsonKey)
+        val cachedJson = App.instance.dataStore.getAsync(scopedReleasesJsonKey)
         return cachedJson
             ?.takeIf { it.isNotBlank() }
             ?.let { runCatching { parseReleasesJson(it, stableReleaseArtifactName()) }.getOrNull() }
@@ -399,7 +409,7 @@ object Updater {
 
     suspend fun getCommitHistory(
         count: Int = 20,
-        branch: String = "dev",
+        branch: String = "custom-app",
     ): Result<List<GitCommit>> =
         runCatchingCancellable {
             if (!isUpdaterDistribution) {
@@ -407,9 +417,15 @@ object Updater {
             }
 
             val response =
-                client
-                    .get("$CommitHistoryBaseUrl/commits?sha=$branch&per_page=$count")
-                    .bodyAsText()
+                try {
+                    client
+                        .get("$commitHistoryBaseUrl/commits?sha=$branch&per_page=$count")
+                        .bodyAsText()
+                } catch (_: Exception) {
+                    client
+                        .get("$commitHistoryBaseUrl/commits?sha=dev&per_page=$count")
+                        .bodyAsText()
+                }
             val jsonArray = JSONArray(response)
             val commits = mutableListOf<GitCommit>()
             for (i in 0 until jsonArray.length()) {
@@ -615,10 +631,10 @@ object Updater {
 
         return runCatchingCancellable {
             val now = System.currentTimeMillis()
-            val cachedJson = App.instance.dataStore.getAsync(GitHubReleasesJsonKey)
-            val cachedEtag = App.instance.dataStore.getAsync(GitHubReleasesEtagKey)
-            val lastCheckedAt = App.instance.dataStore.getAsync(GitHubReleasesLastCheckedAtKey, 0L)
-            val cachedFingerprint = App.instance.dataStore.getAsync(GitHubReleasesFingerprintKey)
+            val cachedJson = App.instance.dataStore.getAsync(scopedReleasesJsonKey)
+            val cachedEtag = App.instance.dataStore.getAsync(scopedReleasesEtagKey)
+            val lastCheckedAt = App.instance.dataStore.getAsync(scopedReleasesLastCheckedAtKey, 0L)
+            val cachedFingerprint = App.instance.dataStore.getAsync(scopedReleasesFingerprintKey)
 
             val cachedReleases =
                 cachedJson
@@ -651,21 +667,26 @@ object Updater {
                     lastCheckTime = now
                     return@runCatchingCancellable fallback
                 }
-                throw IllegalStateException("Failed to fetch releases")
+                return@runCatchingCancellable emptyList()
             }
 
             when {
                 networkResult.status == HttpStatusCode.NotModified -> {
                     App.instance.dataStore.edit { settings ->
-                        settings[GitHubReleasesLastCheckedAtKey] = now
-                        networkResult.etag?.let { settings[GitHubReleasesEtagKey] = it }
+                        settings[scopedReleasesLastCheckedAtKey] = now
+                        networkResult.etag?.let { settings[scopedReleasesEtagKey] = it }
                     }
                     val fallback = cachedReleases
                     if (fallback != null) {
                         lastCheckTime = now
                         return@runCatchingCancellable fallback
                     }
-                    throw IllegalStateException("Release cache is empty")
+                    emptyList()
+                }
+
+                networkResult.status == HttpStatusCode.NotFound || networkResult.body.isNullOrBlank() || networkResult.body.trim() == "[]" -> {
+                    lastCheckTime = now
+                    emptyList()
                 }
 
                 networkResult.status.value in 200..299 && !networkResult.body.isNullOrBlank() -> {
@@ -676,11 +697,11 @@ object Updater {
                     val hasTopReleaseChanged = cachedFingerprint != newFingerprint
 
                     App.instance.dataStore.edit { settings ->
-                        settings[GitHubReleasesLastCheckedAtKey] = now
-                        networkResult.etag?.let { settings[GitHubReleasesEtagKey] = it }
+                        settings[scopedReleasesLastCheckedAtKey] = now
+                        networkResult.etag?.let { settings[scopedReleasesEtagKey] = it }
                         if (hasPayloadChanged || hasTopReleaseChanged || cachedJson.isNullOrBlank()) {
-                            settings[GitHubReleasesJsonKey] = networkBody
-                            settings[GitHubReleasesFingerprintKey] = newFingerprint
+                            settings[scopedReleasesJsonKey] = networkBody
+                            settings[scopedReleasesFingerprintKey] = newFingerprint
                         }
                     }
                     lastCheckTime = now
@@ -693,7 +714,7 @@ object Updater {
                         lastCheckTime = now
                         fallback
                     } else {
-                        throw IllegalStateException("Failed to fetch releases: HTTP ${networkResult.status.value}")
+                        emptyList()
                     }
                 }
             }
