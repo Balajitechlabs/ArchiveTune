@@ -24,6 +24,8 @@ class SleepTimer(
     private val service: MusicService,
 ) : Player.Listener {
     private var sleepTimerJob: Job? = null
+    private var originalVolume: Float = 1.0f
+
     var triggerTime by mutableStateOf(-1L)
         private set
     var pauseWhenSongEnd by mutableStateOf(false)
@@ -32,16 +34,37 @@ class SleepTimer(
         get() = triggerTime != -1L || pauseWhenSongEnd
 
     fun start(minute: Int) {
-        sleepTimerJob?.cancel()
-        sleepTimerJob = null
+        clear()
         if (minute == -1) {
             pauseWhenSongEnd = true
         } else {
-            triggerTime = System.currentTimeMillis() + minute.minutes.inWholeMilliseconds
+            val totalDurationMs = minute.minutes.inWholeMilliseconds
+            triggerTime = System.currentTimeMillis() + totalDurationMs
+            originalVolume = player.volume
+
             sleepTimerJob =
                 scope.launch {
-                    delay(minute.minutes)
+                    // Sunset Decelerator: Apply smooth fade-out curve over the last 60 seconds (or 1/3 of timer if short)
+                    val fadeDurationMs = 60_000L.coerceAtMost(totalDurationMs / 3).coerceAtLeast(0L)
+                    val normalDurationMs = totalDurationMs - fadeDurationMs
+
+                    if (normalDurationMs > 0) {
+                        delay(normalDurationMs)
+                    }
+
+                    if (fadeDurationMs > 0) {
+                        val steps = 30
+                        val stepDelay = fadeDurationMs / steps
+                        for (i in 1..steps) {
+                            val progress = i.toFloat() / steps.toFloat()
+                            val factor = kotlin.math.cos(progress * Math.PI.toFloat() * 0.5f)
+                            player.volume = (originalVolume * factor).coerceAtLeast(0f)
+                            delay(stepDelay)
+                        }
+                    }
+
                     service.pauseFromSleepTimer()
+                    player.volume = originalVolume
                 }
         }
     }
@@ -51,6 +74,9 @@ class SleepTimer(
         sleepTimerJob = null
         pauseWhenSongEnd = false
         triggerTime = -1L
+        if (player.volume != originalVolume && originalVolume > 0f) {
+            player.volume = originalVolume
+        }
     }
 
     override fun onMediaItemTransition(

@@ -11,6 +11,8 @@ import android.app.SearchManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -145,6 +147,24 @@ fun LyricsMenu(
     var showTranslateDialog by rememberSaveable { mutableStateOf(false) }
     var showLyricsSyncOffsetDialog by rememberSaveable { mutableStateOf(false) }
     val isRefetching by viewModel.isRefetching.collectAsStateWithLifecycle()
+
+    val lrcPickerLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent(),
+        ) { uri ->
+            if (uri != null) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        val text = stream.bufferedReader().readText()
+                        viewModel.updateLyrics(mediaMetadataProvider(), text, LyricsEntity.Source.USER_EDIT)
+                        Toast.makeText(context, "LRC lyrics imported", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                }.onFailure {
+                    Toast.makeText(context, "Failed to read LRC file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
 
     LaunchedEffect(viewModel) {
         viewModel.refetchCompletionEvents.collect {
@@ -742,6 +762,18 @@ fun LyricsMenu(
                                 },
                                 text = stringResource(R.string.search),
                                 onClick = { showSearchDialog = true },
+                            ),
+                            NewAction(
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.snippet_folder),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(28.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                text = "Import LRC",
+                                onClick = { lrcPickerLauncher.launch("*/*") },
                             ),
                         ),
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),

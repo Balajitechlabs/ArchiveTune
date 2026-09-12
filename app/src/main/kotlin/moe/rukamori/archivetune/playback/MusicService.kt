@@ -321,6 +321,9 @@ class MusicService :
     @Inject
     lateinit var sponsorBlockPlaybackController: SponsorBlockPlaybackController
 
+    @Inject
+    lateinit var bluetoothDeviceProfileManager: BluetoothDeviceProfileManager
+
     private var playbackPreloadConfiguration: PlaybackPreloadConfiguration? = null
 
     private lateinit var audioManager: AudioManager
@@ -3559,9 +3562,23 @@ class MusicService :
                         if (player.playWhenReady) player.pause()
                     }
                     BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                        if (!autoStartOnBluetoothEnabled) return
+                        val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                        val deviceAddress = device?.address
 
-                        val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                        if (deviceAddress != null) {
+                            scope.launch {
+                                val savedGains = bluetoothDeviceProfileManager.getProfileForDevice(deviceAddress)
+                                if (savedGains != null) {
+                                    Timber.tag("BluetoothAuto").i("Restoring Bluetooth EQ profile for %s", deviceAddress)
+                                    btlNativeAudioProcessor.setAllBands(savedGains)
+                                    btlNativeAudioProcessor.setEnabled(true)
+                                }
+                            }
+                        }
+
+                        if (!autoStartOnBluetoothEnabled) return
+                        if (device == null) return
+
                         val isAudioDevice =
                             try {
                                 val majorClass = device.bluetoothClass?.majorDeviceClass

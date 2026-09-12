@@ -32,6 +32,7 @@ import moe.rukamori.archivetune.innertube.YouTube
 import moe.rukamori.archivetune.innertube.models.AccountInfo
 import moe.rukamori.archivetune.innertube.utils.hasYouTubeLoginCookie
 import moe.rukamori.archivetune.innertube.utils.hasCompleteYouTubeLoginCookies
+import moe.rukamori.archivetune.utils.BtlKeystoreEncryptor
 import moe.rukamori.archivetune.utils.SavedAccount
 import moe.rukamori.archivetune.utils.dataStore
 import moe.rukamori.archivetune.utils.decodeSavedAccounts
@@ -116,7 +117,7 @@ class YouTubeLoginRepository
                     YouTube.authState = resolvedAuthState
 
                     context.dataStore.edit { preferences ->
-                        preferences[InnerTubeCookieKey] = account.innerTubeCookie
+                        preferences[InnerTubeCookieKey] = BtlKeystoreEncryptor.encrypt(account.innerTubeCookie)
                         account.visitorData
                             .normalizeAuthValue()
                             ?.let { preferences[VisitorDataKey] = it }
@@ -177,7 +178,7 @@ class YouTubeLoginRepository
         ) {
             val dataSyncId = authState.dataSyncId ?: throw MissingYouTubeDataSyncIdException()
             context.dataStore.edit { preferences ->
-                preferences[InnerTubeCookieKey] = authState.cookie.orEmpty()
+                preferences[InnerTubeCookieKey] = BtlKeystoreEncryptor.encrypt(authState.cookie.orEmpty())
                 authState.visitorData
                     ?.let { preferences[VisitorDataKey] = it }
                     ?: preferences.remove(VisitorDataKey)

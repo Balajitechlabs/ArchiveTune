@@ -59,7 +59,7 @@ class PlaybackPerformanceSettingsRepository
         private fun settingsFromPreferences(preferences: Preferences): PlaybackPerformanceSettings =
             PlaybackPerformanceSettings(
                 lowDataModeEnabled = preferences[LowDataModeKey] ?: false,
-                preloadNextSongEnabled = preferences[PreloadNextSongKey] ?: false,
+                preloadNextSongEnabled = preferences[PreloadNextSongKey] ?: true,
                 hasPersistedValue =
                     preferences.asMap().containsKey(LowDataModeKey) ||
                         preferences.asMap().containsKey(PreloadNextSongKey),

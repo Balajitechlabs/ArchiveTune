@@ -30,8 +30,10 @@ fun Preferences.toPlaybackAuthState(): PlaybackAuthState {
         this[PoTokenKey]
             ?.trim()
             ?.takeIf { it.isNotEmpty() && !it.equals("null", ignoreCase = true) }
+    val rawCookie = this[InnerTubeCookieKey]
+    val decryptedCookie = rawCookie?.let { BtlKeystoreEncryptor.decrypt(it) }
     return PlaybackAuthState(
-        cookie = this[InnerTubeCookieKey],
+        cookie = decryptedCookie,
         visitorData = this[VisitorDataKey],
         dataSyncId = this[DataSyncIdKey],
         poToken = legacyPoToken,

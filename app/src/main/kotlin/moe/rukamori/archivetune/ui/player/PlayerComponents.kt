@@ -155,6 +155,7 @@ import moe.rukamori.archivetune.extensions.togglePlayPause
 import moe.rukamori.archivetune.extensions.toggleRepeatMode
 import moe.rukamori.archivetune.models.MediaMetadata
 import moe.rukamori.archivetune.playback.PlayerConnection
+import moe.rukamori.archivetune.ui.component.AudiophileCodecBadge
 import moe.rukamori.archivetune.ui.component.BottomSheetPageState
 import moe.rukamori.archivetune.ui.component.BottomSheetState
 import moe.rukamori.archivetune.ui.component.MenuState
@@ -2814,40 +2815,12 @@ private fun V8QualityChip(
     foreground: Color,
     modifier: Modifier = Modifier,
 ) {
-    val label =
-        remember(currentFormat.mimeType, currentFormat.codecs) {
-            currentFormat.codecLabel()
-        }
-
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = foreground.copy(alpha = 0.1f),
-        border =
-            androidx.compose.foundation.BorderStroke(
-                width = 1.dp,
-                color = foreground.copy(alpha = 0.13f),
-            ),
+    AudiophileCodecBadge(
+        format = currentFormat,
+        containerColor = foreground.copy(alpha = 0.12f),
+        contentColor = foreground,
         modifier = modifier,
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.graphic_eq),
-                contentDescription = null,
-                tint = foreground.copy(alpha = 0.72f),
-                modifier = Modifier.size(15.dp),
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = foreground.copy(alpha = 0.72f),
-                maxLines = 1,
-            )
-        }
-    }
+    )
 }
 
 @Composable
